@@ -1,90 +1,22 @@
 use cert_checker::core::get_certificate_info;
-use chrono::{Duration, Utc};
+use chrono::{Duration, Utc, Datelike};
 use rustls::Certificate;
-use x509_parser::prelude::*;
+use rcgen::{CertificateParams, Certificate as RcgenCertificate, date_time_ymd};
 
 fn create_test_certificate(not_before: chrono::DateTime<Utc>, not_after: chrono::DateTime<Utc>) -> Certificate {
-    // Format dates in ASN.1 GeneralizedTime format (YYYYMMDDHHMMSSZ)
-    let format_date = |dt: chrono::DateTime<Utc>| {
-        dt.format("%Y%m%d%H%M%SZ").to_string().into_bytes()
-    };
-    
-    let not_before_bytes = format_date(not_before);
-    let not_after_bytes = format_date(not_after);
-    
-    // Calculate lengths
-    let validity_len = 2 + not_before_bytes.len() + 2 + not_after_bytes.len();
-    let total_len = 4 + 3 + 10 + 15 + 11 + validity_len + 11 + 42 + 5 + 15 + 33;
-    
-    // Create a minimal valid X.509 certificate structure
-    let mut cert_der = vec![
-        // SEQUENCE
-        0x30, (total_len >> 8) as u8, (total_len & 0xFF) as u8,
-        // Version
-        0xA0, 0x03, 0x02, 0x01, 0x02,
-        // Serial Number
-        0x02, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-        // Signature Algorithm
-        0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B, 0x05, 0x00,
-        // Issuer
-        0x30, 0x0B, 0x31, 0x09, 0x30, 0x07, 0x06, 0x03, 0x55, 0x04, 0x03, 0x13, 0x00,
-        // Validity
-        0x30, validity_len as u8,
-        // Not Before
-        0x17, not_before_bytes.len() as u8,
-    ];
-    
-    // Add not_before date
-    cert_der.extend_from_slice(&not_before_bytes);
-    
-    // Add not_after date
-    cert_der.extend_from_slice(&[0x17, not_after_bytes.len() as u8]);
-    cert_der.extend_from_slice(&not_after_bytes);
-    
-    // Continue with the rest of the certificate
-    cert_der.extend_from_slice(&[
-        // Subject
-        0x30, 0x0B, 0x31, 0x09, 0x30, 0x07, 0x06, 0x03, 0x55, 0x04, 0x03, 0x13, 0x00,
-        // Subject Public Key Info
-        0x30, 0x2A,
-        // Algorithm
-        0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70,
-        // Public Key
-        0x03, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-        // Extensions
-        0xA3, 0x03, 0x02, 0x01, 0x02,
-        // Signature
-        0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B, 0x05, 0x00,
-        0x03, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-    ]);
-    
-    // Debug: Print certificate structure
-    println!("Certificate structure:");
-    println!("  Total length: {}", cert_der.len());
-    println!("  Expected length: {}", total_len);
-    println!("  Not before: {}", String::from_utf8_lossy(&not_before_bytes));
-    println!("  Not after: {}", String::from_utf8_lossy(&not_after_bytes));
-    
-    // Try to parse the certificate
-    match X509Certificate::from_der(&cert_der) {
-        Ok((_, cert)) => {
-            println!("Certificate parsed successfully:");
-            println!("  Version: {}", cert.version());
-            println!("  Serial: {:?}", cert.serial);
-            println!("  Validity: {:?}", cert.validity());
-        }
-        Err(e) => {
-            println!("Certificate parsing failed: {}", e);
-            println!("Certificate DER: {:?}", cert_der);
-            panic!("Invalid certificate structure: {}", e);
-        }
-    }
-    
-    Certificate(cert_der)
+    let mut params = CertificateParams::default();
+    params.not_before = date_time_ymd(
+        not_before.year(),
+        not_before.month() as u8,
+        not_before.day() as u8,
+    );
+    params.not_after = date_time_ymd(
+        not_after.year(),
+        not_after.month() as u8,
+        not_after.day() as u8,
+    );
+    let cert = RcgenCertificate::from_params(params).unwrap();
+    Certificate(cert.serialize_der().unwrap())
 }
 
 #[test]
