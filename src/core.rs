@@ -1,0 +1,107 @@
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use rustls::{Certificate, RootCertStore};
+use std::sync::Arc;
+use tokio::net::TcpStream;
+use url::Url;
+use x509_parser::prelude::*;
+
+pub struct CertificateInfo {
+    pub valid_from: DateTime<Utc>,
+    pub valid_until: DateTime<Utc>,
+    pub issuer: String,
+    pub subject: String,
+    pub serial_number: String,
+    pub signature_algorithm: String,
+    pub is_valid: bool,
+    pub is_expired: bool,
+    pub is_not_yet_valid: bool,
+    pub days_until_expiry: i64,
+}
+
+pub async fn check_certificate(url: &str) -> Result<CertificateInfo> {
+    // Parse the URL
+    let url = Url::parse(url)
+        .context("Failed to parse URL")?;
+    
+    // Ensure we have a host
+    let host = url.host_str()
+        .context("URL must have a host")?;
+    
+    // Default to port 443 if not specified
+    let port = url.port().unwrap_or(443);
+    
+    // Create a new TCP connection
+    let addr = format!("{}:{}", host, port);
+    let stream = TcpStream::connect(&addr)
+        .await
+        .context("Failed to connect to server")?;
+    
+    // Set up TLS configuration
+    let mut root_store = RootCertStore::empty();
+    for cert in rustls_native_certs::load_native_certs()? {
+        root_store.add(&Certificate(cert.as_ref().to_vec()))?;
+    }
+    
+    let config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    
+    let config = Arc::new(config);
+    
+    // Create TLS connector
+    let connector = tokio_rustls::TlsConnector::from(config);
+    
+    // Perform TLS handshake
+    let domain = rustls::ServerName::try_from(host)
+        .context("Invalid server name")?;
+    let stream = connector.connect(domain, stream)
+        .await
+        .context("Failed to establish TLS connection")?;
+    
+    // Get the peer certificates
+    let certs = stream.get_ref().1.peer_certificates()
+        .context("Failed to get peer certificates")?;
+    
+    // Get the first certificate
+    let cert = certs.first()
+        .context("No certificate found")?;
+    
+    get_certificate_info(cert)
+}
+
+pub fn get_certificate_info(cert: &Certificate) -> Result<CertificateInfo> {
+    let cert_der = cert.as_ref();
+    let (_, cert) = X509Certificate::from_der(cert_der)
+        .map_err(|e| anyhow::anyhow!("Failed to parse certificate: {}", e))?;
+    
+    let not_before = DateTime::<Utc>::from_timestamp(
+        cert.tbs_certificate.validity.not_before.timestamp() as i64,
+        0,
+    ).unwrap_or_default();
+    
+    let not_after = DateTime::<Utc>::from_timestamp(
+        cert.tbs_certificate.validity.not_after.timestamp() as i64,
+        0,
+    ).unwrap_or_default();
+    
+    let now = Utc::now();
+    let is_expired = now > not_after;
+    let is_not_yet_valid = now < not_before;
+    let is_valid = !is_expired && !is_not_yet_valid;
+    let days_until_expiry = (not_after - now).num_days();
+    
+    Ok(CertificateInfo {
+        valid_from: not_before,
+        valid_until: not_after,
+        issuer: cert.tbs_certificate.issuer.to_string(),
+        subject: cert.tbs_certificate.subject.to_string(),
+        serial_number: cert.tbs_certificate.serial.to_string(),
+        signature_algorithm: cert.signature_algorithm.algorithm.to_string(),
+        is_valid,
+        is_expired,
+        is_not_yet_valid,
+        days_until_expiry,
+    })
+} 
