@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rustls::{Certificate, RootCertStore};
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use tokio::net::TcpStream;
 use url::Url;
 use x509_parser::prelude::*;
@@ -27,7 +27,7 @@ pub struct CertificateChain {
     pub is_chain_valid: bool,
 }
 
-pub async fn check_certificate(url: &str) -> Result<CertificateChain> {
+pub async fn check_certificate(url: &str, cert_store: Option<&Path>) -> Result<CertificateChain> {
     // Add https:// scheme if no scheme is provided
     let url_str = if !url.contains("://") {
         format!("https://{}", url)
@@ -38,6 +38,10 @@ pub async fn check_certificate(url: &str) -> Result<CertificateChain> {
     // Parse the URL
     let url = Url::parse(&url_str)
         .context("Failed to parse URL")?;
+
+    if url.scheme() == "http" {
+        anyhow::bail!("HTTP does not use TLS, cannot retrieve certificate");
+    }
     
     // Ensure we have a host
     let host = url.host_str()
@@ -60,8 +64,28 @@ pub async fn check_certificate(url: &str) -> Result<CertificateChain> {
     
     // Set up TLS configuration
     let mut root_store = RootCertStore::empty();
-    for cert in rustls_native_certs::load_native_certs()? {
-        root_store.add(&Certificate(cert.as_ref().to_vec()))?;
+    if let Some(dir) = cert_store {
+        for entry in std::fs::read_dir(dir)
+            .with_context(|| format!("Failed to read cert store at {}", dir.display()))?
+        {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                let path = entry.path();
+                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                if ext.eq_ignore_ascii_case("pem") || ext.eq_ignore_ascii_case("crt") {
+                    let data = std::fs::read(&path)
+                        .with_context(|| format!("Failed to read certificate {}", path.display()))?;
+                    let mut cursor = &data[..];
+                    for cert in rustls_pemfile::certs(&mut cursor)? {
+                        root_store.add(&Certificate(cert))?;
+                    }
+                }
+            }
+        }
+    } else {
+        for cert in rustls_native_certs::load_native_certs()? {
+            root_store.add(&Certificate(cert.as_ref().to_vec()))?;
+        }
     }
     
     let config = rustls::ClientConfig::builder()
@@ -122,12 +146,14 @@ pub fn get_certificate_info(cert: &Certificate) -> Result<CertificateInfo> {
     let not_before = DateTime::<Utc>::from_timestamp(
         cert.tbs_certificate.validity.not_before.timestamp() as i64,
         0,
-    ).unwrap_or_default();
-    
+    )
+    .ok_or_else(|| anyhow::anyhow!("Invalid certificate timestamp"))?;
+
     let not_after = DateTime::<Utc>::from_timestamp(
         cert.tbs_certificate.validity.not_after.timestamp() as i64,
         0,
-    ).unwrap_or_default();
+    )
+    .ok_or_else(|| anyhow::anyhow!("Invalid certificate timestamp"))?;
     
     let now = Utc::now();
     let is_expired = now > not_after;

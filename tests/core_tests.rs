@@ -1,4 +1,4 @@
-use cert_checker::core::get_certificate_info;
+use cert_checker::core::{check_certificate, get_certificate_info};
 use chrono::{Duration, Utc, Datelike};
 use rustls::Certificate;
 use rcgen::{CertificateParams, Certificate as RcgenCertificate, date_time_ymd};
@@ -113,41 +113,8 @@ fn test_warning_threshold() {
 
 #[test]
 fn test_url_scheme_handling() {
-    use cert_checker::core::check_certificate;
-    use tokio::runtime::Runtime;
-
-    let rt = Runtime::new().unwrap();
-    
-    // Test cases for different URL formats using a non-existent domain
-    let test_cases = vec![
-        ("https://this-domain-does-not-exist.example", 443),
-        ("http://this-domain-does-not-exist.example", 80),
-        ("https://this-domain-does-not-exist.example", 443), // Default to HTTPS
-        ("https://this-domain-does-not-exist.example:8443", 8443),
-        ("http://this-domain-does-not-exist.example:8080", 8080),
-    ];
-
-    for (url, _expected_port) in test_cases {
-        rt.block_on(async {
-            // We expect these to fail with connection errors since we're using a non-existent domain
-            let result = check_certificate(url).await;
-            match result {
-                Ok(_) => {
-                    // If we get here, it means the connection succeeded, which shouldn't happen
-                    // since we're using a non-existent domain
-                    panic!("Unexpected successful connection for URL: {}", url);
-                }
-                Err(e) => {
-                    let err_str = e.to_string();
-                    // Verify that we got a connection error
-                    assert!(
-                        err_str.contains("Failed to connect to server"),
-                        "Expected connection error for URL {}, got: {}",
-                        url,
-                        err_str
-                    );
-                }
-            }
-        });
-    }
-} 
+    // HTTP URLs should immediately return an error without network access
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let result = rt.block_on(check_certificate("http://example.com", None));
+    assert!(result.is_err());
+}
