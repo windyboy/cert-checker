@@ -109,4 +109,45 @@ fn test_warning_threshold() {
     assert!(!info.is_expired);
     assert!(!info.is_not_yet_valid);
     assert!(info.days_until_expiry <= 30); // Should be less than default warning threshold
+}
+
+#[test]
+fn test_url_scheme_handling() {
+    use cert_checker::core::check_certificate;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+    
+    // Test cases for different URL formats using a non-existent domain
+    let test_cases = vec![
+        ("https://this-domain-does-not-exist.example", 443),
+        ("http://this-domain-does-not-exist.example", 80),
+        ("https://this-domain-does-not-exist.example", 443), // Default to HTTPS
+        ("https://this-domain-does-not-exist.example:8443", 8443),
+        ("http://this-domain-does-not-exist.example:8080", 8080),
+    ];
+
+    for (url, _expected_port) in test_cases {
+        rt.block_on(async {
+            // We expect these to fail with connection errors since we're using a non-existent domain
+            let result = check_certificate(url).await;
+            match result {
+                Ok(_) => {
+                    // If we get here, it means the connection succeeded, which shouldn't happen
+                    // since we're using a non-existent domain
+                    panic!("Unexpected successful connection for URL: {}", url);
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // Verify that we got a connection error
+                    assert!(
+                        err_str.contains("Failed to connect to server"),
+                        "Expected connection error for URL {}, got: {}",
+                        url,
+                        err_str
+                    );
+                }
+            }
+        });
+    }
 } 

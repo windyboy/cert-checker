@@ -1,11 +1,12 @@
 # Cert-Checker
 
-A command-line tool to check SSL/TLS certificates for secure websites. This tool helps you verify the validity, expiration dates, and other important information about SSL/TLS certificates.
+A command-line tool to check SSL/TLS certificates for secure websites. This tool helps you verify the validity, expiration dates, and other important information about SSL/TLS certificates and their certificate chains.
 
 ## Features
 
-- Check certificate validity and expiration dates
-- Display detailed certificate information
+- Check complete certificate chain (server, intermediate, and root certificates)
+- Display detailed certificate information for each certificate in the chain
+- Verify chain validity and individual certificate status
 - Support for both text and JSON output formats
 - Configurable warning threshold for certificate expiration
 - Verbose logging for debugging
@@ -28,7 +29,14 @@ cargo build --release
 
 Basic usage:
 ```bash
+# Check HTTPS certificate chain
 cert-checker https://example.com
+
+# Check HTTP certificate chain
+cert-checker http://example.com
+
+# Check with just domain (defaults to HTTPS)
+cert-checker example.com
 ```
 
 With options:
@@ -57,32 +65,93 @@ cert-checker -c /path/to/certificates https://example.com
 
 ### Text Output
 ```
-Certificate Information:
-Valid from: 2024-01-01 00:00:00 UTC
-Valid until: 2024-12-31 23:59:59 UTC
-Issuer: CN=Example CA
-Subject: CN=example.com
-Serial Number: 1234567890
-Signature Algorithm: SHA256withRSA
-✓ Certificate is valid
+================================================================================
+Certificate Chain Status: ✓ Valid
+================================================================================
+
+--------------------------------------------------------------------------------
+Certificate #1 (SERVER)
+--------------------------------------------------------------------------------
+
+Basic Information:
+  Subject: CN=example.com
+  Issuer:  CN=Intermediate CA
+
+Validity Period:
+  Valid From:  2024-01-01 00:00:00 UTC
+  Valid Until: 2024-12-31 23:59:59 UTC
+
+Technical Details:
+  Serial Number:        1234567890
+  Signature Algorithm:  SHA256withRSA
+
+Status Information:
+  ✓ Certificate is VALID
+  ✓ Days until expiry: 365
+
+--------------------------------------------------------------------------------
+Certificate #2 (INTERMEDIATE)
+--------------------------------------------------------------------------------
+...
+
+================================================================================
 ```
 
 ### JSON Output
 ```json
 {
-  "valid_from": "2024-01-01T00:00:00Z",
-  "valid_until": "2024-12-31T23:59:59Z",
-  "issuer": "CN=Example CA",
-  "subject": "CN=example.com",
-  "serial_number": "1234567890",
-  "signature_algorithm": "SHA256withRSA",
-  "is_valid": true,
-  "is_expired": false,
-  "is_not_yet_valid": false,
-  "days_until_expiry": 365,
-  "warning": ""
+  "is_chain_valid": true,
+  "certificates": [
+    {
+      "type": "server",
+      "valid_from": "2024-01-01T00:00:00Z",
+      "valid_until": "2024-12-31T23:59:59Z",
+      "issuer": "CN=Intermediate CA",
+      "subject": "CN=example.com",
+      "serial_number": "1234567890",
+      "signature_algorithm": "SHA256withRSA",
+      "is_valid": true,
+      "is_expired": false,
+      "is_not_yet_valid": false,
+      "days_until_expiry": 365,
+      "warning": ""
+    },
+    {
+      "type": "intermediate",
+      "valid_from": "2023-01-01T00:00:00Z",
+      "valid_until": "2025-12-31T23:59:59Z",
+      "issuer": "CN=Root CA",
+      "subject": "CN=Intermediate CA",
+      "serial_number": "0987654321",
+      "signature_algorithm": "SHA256withRSA",
+      "is_valid": true,
+      "is_expired": false,
+      "is_not_yet_valid": false,
+      "days_until_expiry": 730,
+      "warning": ""
+    }
+  ]
 }
 ```
+
+## Certificate Chain Information
+
+The tool checks and displays information for the complete certificate chain, which typically includes:
+
+1. **Server Certificate**
+   - The website's own certificate
+   - Contains the domain name and public key
+   - Signed by an intermediate certificate
+
+2. **Intermediate Certificate**
+   - Issued by a trusted Certificate Authority
+   - Links the server certificate to the root certificate
+   - May be part of a chain of intermediate certificates
+
+3. **Root Certificate**
+   - The top-level certificate in the chain
+   - Self-signed by a trusted Certificate Authority
+   - Used to verify the entire chain
 
 ## Development
 

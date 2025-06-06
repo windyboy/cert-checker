@@ -4,7 +4,7 @@ use anyhow::Result;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// URL to check (e.g., https://example.com)
+    /// URL to check (e.g., example.com, http://example.com, https://example.com)
     #[arg(required = true)]
     pub url: String,
 

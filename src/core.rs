@@ -6,6 +6,7 @@ use tokio::net::TcpStream;
 use url::Url;
 use x509_parser::prelude::*;
 
+#[derive(Debug)]
 pub struct CertificateInfo {
     pub valid_from: DateTime<Utc>,
     pub valid_until: DateTime<Utc>,
@@ -17,19 +18,39 @@ pub struct CertificateInfo {
     pub is_expired: bool,
     pub is_not_yet_valid: bool,
     pub days_until_expiry: i64,
+    pub certificate_type: String, // "server", "intermediate", or "root"
 }
 
-pub async fn check_certificate(url: &str) -> Result<CertificateInfo> {
+#[derive(Debug)]
+pub struct CertificateChain {
+    pub certificates: Vec<CertificateInfo>,
+    pub is_chain_valid: bool,
+}
+
+pub async fn check_certificate(url: &str) -> Result<CertificateChain> {
+    // Add https:// scheme if no scheme is provided
+    let url_str = if !url.contains("://") {
+        format!("https://{}", url)
+    } else {
+        url.to_string()
+    };
+
     // Parse the URL
-    let url = Url::parse(url)
+    let url = Url::parse(&url_str)
         .context("Failed to parse URL")?;
     
     // Ensure we have a host
     let host = url.host_str()
         .context("URL must have a host")?;
     
-    // Default to port 443 if not specified
-    let port = url.port().unwrap_or(443);
+    // Use port 80 for HTTP and 443 for HTTPS
+    let port = url.port().unwrap_or_else(|| {
+        match url.scheme() {
+            "http" => 80,
+            "https" => 443,
+            _ => 443, // Default to HTTPS port for unknown schemes
+        }
+    });
     
     // Create a new TCP connection
     let addr = format!("{}:{}", host, port);
@@ -60,15 +81,37 @@ pub async fn check_certificate(url: &str) -> Result<CertificateInfo> {
         .await
         .context("Failed to establish TLS connection")?;
     
-    // Get the peer certificates
+    // Get all peer certificates
     let certs = stream.get_ref().1.peer_certificates()
         .context("Failed to get peer certificates")?;
     
-    // Get the first certificate
-    let cert = certs.first()
-        .context("No certificate found")?;
-    
-    get_certificate_info(cert)
+    let mut chain = CertificateChain {
+        certificates: Vec::new(),
+        is_chain_valid: true,
+    };
+
+    // Process each certificate in the chain
+    for (i, cert) in certs.iter().enumerate() {
+        let mut info = get_certificate_info(cert)?;
+        
+        // Determine certificate type
+        info.certificate_type = if i == 0 {
+            "server".to_string()
+        } else if i == certs.len() - 1 {
+            "root".to_string()
+        } else {
+            "intermediate".to_string()
+        };
+
+        // Update chain validity
+        if !info.is_valid {
+            chain.is_chain_valid = false;
+        }
+
+        chain.certificates.push(info);
+    }
+
+    Ok(chain)
 }
 
 pub fn get_certificate_info(cert: &Certificate) -> Result<CertificateInfo> {
@@ -103,5 +146,6 @@ pub fn get_certificate_info(cert: &Certificate) -> Result<CertificateInfo> {
         is_expired,
         is_not_yet_valid,
         days_until_expiry,
+        certificate_type: String::new(), // Will be set by the caller
     })
 } 
