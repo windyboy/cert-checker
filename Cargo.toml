@@ -21,6 +21,7 @@ x509-parser = "0.15"
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rustls-pemfile = "1.0"
 
 [lib]
 name = "cert_checker"
@@ -32,3 +33,4 @@ path = "src/main.rs"
 
 [dev-dependencies]
 rcgen = "0.12"
+tempfile = "3"

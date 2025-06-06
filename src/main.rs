@@ -3,6 +3,7 @@ mod core;
 mod utils;
 
 use anyhow::Result;
+use std::path::Path;
 use tracing::info;
 
 #[tokio::main]
@@ -16,7 +17,11 @@ async fn main() -> Result<()> {
     info!("Starting certificate chain check");
     
     // Check certificate chain
-    let cert_chain = core::check_certificate(&args.url).await?;
+    let cert_chain = core::check_certificate(
+        &args.url,
+        args.cert_store.as_deref().map(Path::new),
+    )
+    .await?;
     
     // Display results
     utils::display_certificate_info(&cert_chain, args.warning_days, &args.format)?;

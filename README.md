@@ -32,9 +32,6 @@ Basic usage:
 # Check HTTPS certificate chain
 cert-checker https://example.com
 
-# Check HTTP certificate chain
-cert-checker http://example.com
-
 # Check with just domain (defaults to HTTPS)
 cert-checker example.com
 ```
@@ -50,7 +47,7 @@ cert-checker -v https://example.com
 # Set custom warning threshold (in days)
 cert-checker -w 60 https://example.com
 
-# Use custom certificate store
+# Use custom certificate store (directory containing .pem or .crt files)
 cert-checker -c /path/to/certificates https://example.com
 ```
 
@@ -171,6 +168,10 @@ cargo build --release
 
 # Run tests
 cargo test
+
+# Format and lint (required by CI)
+cargo fmt -- --check
+cargo clippy -- -D warnings
 ```
 
 ### Running Tests
@@ -186,6 +187,7 @@ cargo test
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+6. Ensure `cargo fmt -- --check`, `cargo clippy -- -D warnings` and `cargo test` all pass
 
 ## License
 
