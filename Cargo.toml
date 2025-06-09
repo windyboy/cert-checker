@@ -1,5 +1,5 @@
 [package]
-name = "cert-checker"
+name = "cert_checker"
 version = "0.1.0"
 edition = "2021"
 description = "A command-line tool to check SSL/TLS certificates for secure websites"
@@ -9,10 +9,10 @@ description = "A command-line tool to check SSL/TLS certificates for secure webs
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
 tokio = { version = "1.36", features = ["full"] }
-rustls = "0.21"
+rustls = { version = "0.21", features = ["dangerous_configuration"] }
 rustls-native-certs = "0.7"
 webpki = "0.22"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
 url = "2.5"
 tokio-rustls = "0.24"
@@ -20,7 +20,13 @@ rustls-pki-types = "0.1"
 x509-parser = "0.15"
 serde_json = "1.0"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+thiserror = "1.0"
+indicatif = "0.17"
+futures = "0.3"
+colored = "2.1"
+tokio-native-tls = "0.3"
+native-tls = "0.2"
 
 [lib]
 name = "cert_checker"
@@ -32,3 +38,4 @@ path = "src/main.rs"
 
 [dev-dependencies]
 rcgen = "0.12"
+tokio = { version = "1.36", features = ["full", "test-util"] }

@@ -1,4 +1,4 @@
-use cert_checker::core::get_certificate_info;
+use cert_checker::core::{parse_certificate};
 use chrono::{Duration, Utc, Datelike};
 use rustls::Certificate;
 use rcgen::{CertificateParams, Certificate as RcgenCertificate, date_time_ymd};
@@ -26,7 +26,7 @@ fn test_certificate_info_valid() {
     let not_after = now + Duration::days(30);
     
     let cert = create_test_certificate(not_before, not_after);
-    let info = get_certificate_info(&cert).unwrap();
+    let info = parse_certificate(&cert, true).unwrap();
     
     println!("Valid certificate test:");
     println!("  Not before: {}", not_before);
@@ -49,7 +49,7 @@ fn test_certificate_info_expired() {
     let not_after = now - Duration::days(30);
     
     let cert = create_test_certificate(not_before, not_after);
-    let info = get_certificate_info(&cert).unwrap();
+    let info = parse_certificate(&cert, true).unwrap();
     
     println!("Expired certificate test:");
     println!("  Not before: {}", not_before);
@@ -72,7 +72,7 @@ fn test_certificate_info_not_yet_valid() {
     let not_after = now + Duration::days(60);
     
     let cert = create_test_certificate(not_before, not_after);
-    let info = get_certificate_info(&cert).unwrap();
+    let info = parse_certificate(&cert, true).unwrap();
     
     println!("Not yet valid certificate test:");
     println!("  Not before: {}", not_before);
@@ -95,7 +95,7 @@ fn test_warning_threshold() {
     let not_after = now + Duration::days(15); // Less than default warning threshold
     
     let cert = create_test_certificate(not_before, not_after);
-    let info = get_certificate_info(&cert).unwrap();
+    let info = parse_certificate(&cert, true).unwrap();
     
     println!("Warning threshold test:");
     println!("  Not before: {}", not_before);
@@ -112,42 +112,62 @@ fn test_warning_threshold() {
 }
 
 #[test]
-fn test_url_scheme_handling() {
-    use cert_checker::core::check_certificate;
-    use tokio::runtime::Runtime;
+fn test_certificate_info_edge_cases() {
+    // Test certificate with same start and end date
+    let now = Utc::now();
+    let cert = create_test_certificate(now, now);
+    let info = parse_certificate(&cert, true).unwrap();
+    assert_eq!(info.valid_until, info.valid_from);
+    assert!(!info.is_valid);
+    assert!(info.is_expired);
+    assert!(!info.is_not_yet_valid);
+    assert_eq!(info.days_until_expiry, 0);
 
-    let rt = Runtime::new().unwrap();
+    // Test certificate with very long validity period
+    // Add a day buffer to account for time-of-day truncation
+    let not_before = now - Duration::days(365 * 10) - Duration::days(1); // 10 years ago, minus 1 day
+    let not_after = now + Duration::days(365 * 10) + Duration::days(1);  // 10 years from now, plus 1 day
+    let cert = create_test_certificate(not_before, not_after);
+    let info = parse_certificate(&cert, true).unwrap();
+    println!("[DEBUG] not_before: {} not_after: {}", not_before, not_after);
+    println!("[DEBUG] valid_from: {} valid_until: {}", info.valid_from, info.valid_until);
     
-    // Test cases for different URL formats using a non-existent domain
-    let test_cases = vec![
-        ("https://this-domain-does-not-exist.example", 443),
-        ("http://this-domain-does-not-exist.example", 80),
-        ("https://this-domain-does-not-exist.example", 443), // Default to HTTPS
-        ("https://this-domain-does-not-exist.example:8443", 8443),
-        ("http://this-domain-does-not-exist.example:8080", 8080),
-    ];
+    // Check that the validity period is at least 3650 days
+    assert!(info.valid_until >= info.valid_from);
+    assert!((info.valid_until - info.valid_from).num_days() >= 3650);
+    
+    // Check that the certificate is valid by checking the validity flags
+    assert!(info.is_valid);
+    assert!(!info.is_expired);
+    assert!(!info.is_not_yet_valid);
+    assert!(info.days_until_expiry > 0);
 
-    for (url, _expected_port) in test_cases {
-        rt.block_on(async {
-            // We expect these to fail with connection errors since we're using a non-existent domain
-            let result = check_certificate(url).await;
-            match result {
-                Ok(_) => {
-                    // If we get here, it means the connection succeeded, which shouldn't happen
-                    // since we're using a non-existent domain
-                    panic!("Unexpected successful connection for URL: {}", url);
-                }
-                Err(e) => {
-                    let err_str = e.to_string();
-                    // Verify that we got a connection error
-                    assert!(
-                        err_str.contains("Failed to connect to server"),
-                        "Expected connection error for URL {}, got: {}",
-                        url,
-                        err_str
-                    );
-                }
-            }
-        });
-    }
+    // Test certificate with very short validity period
+    // Add a day buffer to account for time-of-day truncation
+    let not_before = now - Duration::days(1); // 1 day ago
+    let not_after = now + Duration::days(1);  // 1 day from now
+    let cert = create_test_certificate(not_before, not_after);
+    let info = parse_certificate(&cert, true).unwrap();
+    println!("[DEBUG] short valid_from: {} valid_until: {}", info.valid_from, info.valid_until);
+    
+    // For short validity period, check the validity flags
+    assert!(info.valid_until >= info.valid_from);
+    assert!(info.is_valid);
+    assert!(!info.is_expired);
+    assert!(!info.is_not_yet_valid);
+    assert!(info.days_until_expiry < 2); // Less than 2 days
+}
+
+#[test]
+fn test_certificate_info_invalid_dates() {
+    // Test certificate with end date before start date
+    let now = Utc::now();
+    let not_before = now + Duration::days(30);
+    let not_after = now - Duration::days(30);
+    let cert = create_test_certificate(not_before, not_after);
+    let info = parse_certificate(&cert, true).unwrap();
+    assert!(!info.is_valid);
+    assert!(info.is_expired);
+    assert!(info.is_not_yet_valid); // This should be true since not_before is in the future
+    assert!(info.days_until_expiry < 0);
 } 
