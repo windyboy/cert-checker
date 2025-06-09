@@ -29,16 +29,6 @@ impl ServerCertVerifier for NoVerifier {
 }
 // --- END: NoVerifier ---
 
-#[allow(dead_code)]
-/// Custom error types for certificate checking operations
-pub enum CertError {
-    /// Failed to parse URL
-    UrlParseError(String),
-    /// Failed to connect
-    ConnectionError(String),
-    /// Failed to parse certificate
-    ParseError(String),
-}
 
 /// Check a single certificate
 pub async fn check_certificate(url: &str, warning_days: u32, concurrent: usize) -> Result<CertificateChain, CertCheckerError> {
