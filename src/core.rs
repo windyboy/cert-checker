@@ -86,7 +86,7 @@ pub async fn check_certificate(url: &str, warning_days: u32, concurrent: usize) 
                 CertCheckerError::ConnectionError(format!("Invalid server name {}: {}", url, e))
             })?;
 
-        let _stream = connector
+        let stream = connector
             .connect(domain, stream)
             .await
             .map_err(|e| {
@@ -94,9 +94,13 @@ pub async fn check_certificate(url: &str, warning_days: u32, concurrent: usize) 
                 CertCheckerError::ConnectionError(format!("Failed to establish TLS connection to {}: {}", url, e))
             })?;
 
-        // TODO: Extract peer certificates from the TLS stream.
-        // The following is a placeholder. You must implement extraction of the certificate chain from the stream.
-        let certs: Vec<Certificate> = Vec::new();
+        // Extract peer certificates from the TLS stream
+        let (_, session) = stream.get_ref();
+        let certs = session.peer_certificates()
+            .ok_or_else(|| {
+                error!("No certificates found for {}", url);
+                CertCheckerError::NoCertificatesFound(url.to_string())
+            })?;
 
         let mut certificates = Vec::new();
         for (i, cert) in certs.iter().enumerate() {
